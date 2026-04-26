@@ -3,5 +3,9 @@ variable "bucket_name" {
 }
 
 variable "layer_name" {
-  type    = string
+  type = string
+}
+
+variable "vpc_endpoint_id" {
+  type = string
 }
