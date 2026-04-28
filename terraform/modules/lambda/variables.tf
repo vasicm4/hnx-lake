@@ -9,3 +9,14 @@ variable "private_subnet_id" {
 variable "bronze_bucket_arn" {
   type        = string
 }
+
+variable "bronze_bucket_name" {
+  type        = string
+  description = "Name of the bronze S3 bucket"
+}
+
+variable "discord_webhook_url" {
+  type        = string
+  description = "Discord webhook URL for notifications"
+  sensitive   = true
+}

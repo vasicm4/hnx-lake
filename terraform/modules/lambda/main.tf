@@ -38,31 +38,77 @@ resource "aws_security_group" "lambda_sg" {
   vpc_id      = var.vpc_id
 
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
+    description = "HTTPS for API calls"
+  }
+
+  egress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "HTTP for HN Search API"
   }
 }
 
 data "archive_file" "lambda_zip" {
   type        = "zip"
-  source_file = "${path.module}/lambda_function.py"
-  output_path = "${path.module}/lambda_function.zip"
+  source_file = "${path.module}/bronze_lambda.py"
+  output_path = "${path.module}/bronze_lambda.zip"
 }
 
-resource "aws_lambda_function" "test_fetch" {
+resource "aws_lambda_function" "hackernews_fetch" {
   filename         = data.archive_file.lambda_zip.output_path
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
   
   function_name = "visor-inc-test-fetch"
   role          = aws_iam_role.lambda_exec.arn
-  handler       = "lambda_function.lambda_handler"
+  handler       = "bronze_lambda.lambda_handler"
   runtime       = "python3.11"
-  timeout       = 15
+  timeout       = 900
+  memory_size   = 512
 
   vpc_config {
     subnet_ids         = [var.private_subnet_id]
     security_group_ids = [aws_security_group.lambda_sg.id]
   }
+
+  environment {
+    variables = {
+      BRONZE_BUCKET_NAME   = var.bronze_bucket_name
+      DISCORD_WEBHOOK_URL  = var.discord_webhook_url
+    }
+  }
 }
+
+resource "aws_cloudwatch_event_rule" "daily_trigger" {
+  name                = "visor-inc-daily-data-collection"
+  description         = "Trigger data collection daily"
+  schedule_expression = "cron(0 1 * * ? *)"
+}
+
+resource "aws_cloudwatch_event_target" "lambda_target" {
+  rule      = aws_cloudwatch_event_rule.daily_trigger.name
+  target_id = "hackernews-fetch-lambda"
+  arn       = aws_lambda_function.hackernews_fetch.arn
+}
+
+resource "aws_lambda_permission" "allow_eventbridge" {
+  statement_id  = "AllowExecutionFromEventBridge"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.hackernews_fetch.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.daily_trigger.arn
+}
+
+# resource "aws_cloudwatch_log_group" "lambda_logs" {
+#   name              = "/aws/lambda/${aws_lambda_function.hackernews_fetch.function_name}"
+#   retention_in_days = 14
+# 
+#   tags = {
+#     Name = "visor-inc-lambda-logs"
+#   }
+# }

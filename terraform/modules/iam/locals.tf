@@ -4,7 +4,9 @@ locals {
     "arn:aws:iam::aws:policy/AWSLambda_FullAccess",
     "arn:aws:iam::aws:policy/AmazonEC2FullAccess",
     "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess",
-    "arn:aws:iam::aws:policy/IAMFullAccess"
+    "arn:aws:iam::aws:policy/IAMFullAccess",
+    "arn:aws:iam::aws:policy/CloudWatchEventsFullAccess",
+    "arn:aws:iam::aws:policy/CloudWatchLogsFullAccess"
   ]
 
   all_users = {
