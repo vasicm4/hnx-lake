@@ -56,13 +56,34 @@ resource "aws_security_group" "lambda_sg" {
 
 data "archive_file" "bronze_lambda_zip" {
   type        = "zip"
-  source_file = "${path.module}/bronze_lambda.py"
+  source_file = "${path.module}/bronze/bronze_lambda.py"
   output_path = "${path.module}/bronze_lambda.zip"
 }
 
+resource "null_resource" "build_silver_lambda" {
+  provisioner "local-exec" {
+    command = <<-EOT
+      rm -rf ${path.module}/build/silver
+      mkdir -p ${path.module}/build/silver
+
+      docker run --rm \
+        -v ${abspath(path.module)}/silver:/workspace/silver \
+        -v ${abspath(path.module)}/build:/workspace/build \
+        python:3.12-slim \
+        /bin/bash -c "
+          pip install -r /workspace/silver/requirements.txt \
+            -t /workspace/build/silver &&
+          cp /workspace/silver/silver_lambda.py \
+            /workspace/build/silver/
+        "
+    EOT
+  }
+}
+
 data "archive_file" "silver_lambda_zip" {
+  depends_on = [null_resource.build_silver_lambda]
   type        = "zip"
-  source_file = "${path.module}/silver_lambda.py"
+  source_dir = "${path.module}/build/silver"
   output_path = "${path.module}/silver_lambda.zip"
 }
 
@@ -73,7 +94,7 @@ resource "aws_lambda_function" "hackernews_fetch" {
   function_name = "visor-inc-test-fetch"
   role          = aws_iam_role.lambda_exec.arn
   handler       = "bronze_lambda.lambda_handler"
-  runtime       = "python3.11"
+  runtime       = "python3.12"
   timeout       = 900
   memory_size   = 512
 
@@ -97,7 +118,7 @@ resource "aws_lambda_function" "silver_lambda" {
   function_name = "visor-inc-silver-lambda"
   role          = aws_iam_role.lambda_exec.arn
   handler       = "silver_lambda.lambda_handler"
-  runtime       = "python3.11"
+  runtime       = "python3.12"
   timeout       = 900
   memory_size   = 512
 

@@ -27,7 +27,7 @@ module "gold_bucket" {
   vpc_endpoint_id = module.network.s3_vpce_id
 }
 
-module "bronze_lambda" {
+module "lambda" {
   source              = "./modules/lambda"
   vpc_id              = module.network.vpc_id
   private_subnet_id   = module.network.private_subnet_id

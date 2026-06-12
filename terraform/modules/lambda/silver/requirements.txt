@@ -1,0 +1,6 @@
+boto3==1.40.0
+urllib3==2.5.0
+pandas==2.3.1
+numpy==2.3.1
+awswrangler==3.13.0
+pyarrow<21.0.0
