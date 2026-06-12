@@ -36,7 +36,7 @@ def send_discord_notification(message, is_error=True):
 
         payload = {
             "embeds": [{
-                "title": "Silver Lambda Job Failed" if is_error else "Silver Lambda Job Succeeded",
+                "title": "Twitter Silver Lambda Job Failed" if is_error else "Twitter Silver Lambda Job Succeeded",
                 "description": message,
                 "color": color,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -71,20 +71,13 @@ def clean_html_text(text):
 
 def normalize_timestamp(timestamp_val, source_platform):
     try:
-        if isinstance(timestamp_val, (int, float)):
-            dt = datetime.fromtimestamp(timestamp_val, tz=timezone.utc)
-        elif isinstance(timestamp_val, str) and timestamp_val.isdigit():
-            dt = datetime.fromtimestamp(int(timestamp_val), tz=timezone.utc)
-        else:
-            dt = pd.to_datetime(timestamp_val, utc=True)
+        dt = pd.to_datetime(timestamp_val, utc=True)
         return dt.strftime('%Y-%m-%dT%H:%M:%SZ')
     except Exception as e:
         print(f"Error normalizing timestamp {timestamp_val}: {str(e)}")
         return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
-
-def extract_hn_items(objects_list, date_str):
-    """Extract and normalize Hacker News items from bronze layer"""
+def extract_x_items(objects_list, date_str):
     posts = []
     users = {}
 
@@ -94,87 +87,61 @@ def extract_hn_items(objects_list, date_str):
                 continue
             response = s3_client.get_object(Bucket=BRONZE_BUCKET, Key=obj['Key'])
             data = json.loads(response['Body'].read().decode('utf-8'))
-            if not data:
-                continue
-            key_parts = obj['Key'].split('/')
-            item_type = None
-            for part in key_parts:
-                if part.startswith('type='):
-                    item_type = part.split('=')[1]
-                    break
-            if not item_type:
-                if 'post_type' in data:
-                    item_type = data['post_type']
-                elif 'title' in data and 'url' in data:
-                    item_type = 'story'
-                elif 'text' in data:
-                    item_type = 'comment'
-                else:
-                    item_type = 'unknown'
-            item_id = str(data.get('objectID') or data.get('id') or data.get('post_id') or '')
-            if not item_id:
-                continue
-            author = data.get('author') or data.get('username') or data.get('user') or ''
-            if not author:
-                continue
-            created_at_i = data.get('created_at_i') or data.get('created_at')
-            created_at_norm = normalize_timestamp(created_at_i, 'hackernews')
-            if item_type == 'comment':
-                content_raw = data.get('text') or data.get('comment') or ''
-            else:
-                content_raw = data.get('title') or data.get('text') or ''
-            content_clean = clean_html_text(content_raw)
-            url = data.get('url') or data.get('link') or ''
-            score = data.get('score') or data.get('points') or 0
-            if item_type in ['story', 'ask', 'job', 'poll']:
-                post_type_map = {
-                    'story': 'story',
-                    'ask': 'ask_hn',
-                    'job': 'job',
-                    'poll': 'poll'
-                }
-                post_type = post_type_map.get(item_type, item_type)
+            if not isinstance(data, list):
+                data = [data] if isinstance(data, dict) else []
+            for tweet in data:
+                if not isinstance(tweet, dict):
+                    continue
+                item_id = str(tweet.get('id') or tweet.get('tweet_id') or tweet.get('ID') or '')
+                if not item_id:
+                    continue
+                author = tweet.get('user') or tweet.get('username') or tweet.get('author') or ''
+                if isinstance(author, dict):
+                    author = author.get('screen_name') or author.get('name') or str(author.get('id', ''))
+                if not author:
+                    continue
+                timestamp_val = tweet.get('Timestamp') or tweet.get('created_at') or tweet.get('timestamp')
+                created_at_norm = normalize_timestamp(timestamp_val, 'x')
+                content_raw = tweet.get('Text') or tweet.get('text') or tweet.get('content') or ''
+                content_clean = clean_html_text(content_raw)
+                is_retweet = (
+                    content_clean.startswith('RT @') or
+                    tweet.get('is_retweet') == True or
+                    tweet.get('retweet_count', 0) > 0
+                )
+                post_type = 'retweet' if is_retweet else 'tweet'
                 posts.append({
                     'post_id': item_id,
                     'author_username': author,
                     'content_text': content_clean,
                     'created_at': created_at_norm,
                     'post_type': post_type,
-                    'url': url,
-                    'score': score
+                    'retweet_count': tweet.get('retweet_count', 0),
+                    'favorite_count': tweet.get('favorite_count', 0)
                 })
                 if author not in users:
+                    verified = False
+                    user_obj = tweet.get('user', {})
+                    if isinstance(user_obj, dict):
+                        verified = user_obj.get('verified', False)
+                    elif 'verified' in tweet:
+                        verified = tweet.get('verified', False)
+
                     users[author] = {
-                        'user_id': str(uuid.uuid5(uuid.NAMESPACE_DNS, f"hn:{author}")),
+                        'user_id': str(uuid.uuid5(uuid.NAMESPACE_DNS, f"x:{author}")),
                         'username': author,
-                        'platform': 'Hacker News',
-                        'karma_score': int(score) if isinstance(score, (int, float)) and not np.isnan(score) else 0,
-                        'is_verified': None,
+                        'platform': 'X',
+                        'karma_score': None,
+                        'is_verified': bool(verified),
                         'created_at': created_at_norm
                     }
-            elif item_type == 'comment':
-                posts.append({
-                    'post_id': item_id,
-                    'author_username': author,
-                    'content_text': content_clean,
-                    'created_at': created_at_norm,
-                    'post_type': 'comment',
-                    'parent_id': data.get('parent') or data.get('parent_id'),
-                    'story_id': data.get('story_id')
-                })
-                if author not in users:
-                    users[author] = {
-                        'user_id': str(uuid.uuid5(uuid.NAMESPACE_DNS, f"hn:{author}")),
-                        'username': author,
-                        'platform': 'Hacker News',
-                        'karma_score': 0,
-                        'is_verified': None,
-                        'created_at': created_at_norm
-                    }
+
         except Exception as e:
-            print(f"Error processing HN object {obj['Key']}: {str(e)}")
+            print(f"Error processing X object {obj['Key']}: {str(e)}")
             continue
+
     return posts, list(users.values())
+
 
 def write_dataframe_to_s3_parquet(df, bucket, prefix, partition_cols=None):
     try:
@@ -211,8 +178,8 @@ def write_dataframe_to_s3_parquet(df, bucket, prefix, partition_cols=None):
 def lambda_handler(event, context):
     start_time = time.time()
     stats = {
-        'hn_posts': 0,
-        'hn_users': 0,
+        'x_posts': 0,
+        'x_users': 0,
         'total_posts': 0,
         'total_users': 0
     }
@@ -224,38 +191,41 @@ def lambda_handler(event, context):
             target_date = datetime.now(timezone.utc) - timedelta(days=1)
         date_str = target_date.strftime('%Y-%m-%d')
         print(f"Processing data for date: {date_str}")
-        prefix_hn = f"datasource=hackernews/"
-        print("Fetching Hacker News objects from bronze layer...")
-        hn_objects = []
+        prefix_x = f"datasource=x/"
+        print("Fetching X (Twitter) objects from bronze layer...")
+        x_objects = []
         continuation_token = None
+
         while True:
             if continuation_token:
                 response = s3_client.list_objects_v2(
                     Bucket=BRONZE_BUCKET,
-                    Prefix=prefix_hn,
+                    Prefix=prefix_x,
                     ContinuationToken=continuation_token
                 )
             else:
                 response = s3_client.list_objects_v2(
                     Bucket=BRONZE_BUCKET,
-                    Prefix=prefix_hn
+                    Prefix=prefix_x
                 )
+
             if 'Contents' in response:
                 for obj in response['Contents']:
                     if f"date={date_str}" in obj['Key']:
-                        hn_objects.append(obj)
+                        x_objects.append(obj)
+
             if response.get('IsTruncated'):
                 continuation_token = response.get('NextContinuationToken')
             else:
                 break
-        print(f"Found {len(hn_objects)} Hacker News objects for {date_str}")
-        
-        print("Processing Hacker News data...")
-        hn_posts, hn_users = extract_hn_items(hn_objects, date_str)
-        stats['hn_posts'] = len(hn_posts)
-        stats['hn_users'] = len(hn_users)
-        all_posts = hn_posts
-        all_users = hn_users
+
+        print(f"Found {len(x_objects)} X objects for {date_str}")
+        print("Processing X (Twitter) data...")
+        x_posts, x_users = extract_x_items(x_objects, date_str)
+        stats['x_posts'] = len(x_posts)
+        stats['x_users'] = len(x_users)
+        all_posts = x_posts
+        all_users = x_users
         users_by_key = {}
         for user in all_users:
             key = (user['username'], user['platform'])
@@ -321,8 +291,8 @@ def lambda_handler(event, context):
         summary = f"""
             **Silver Layer Normalization Summary**
             Date: {date_str}
-            Hacker News Posts: {stats['hn_posts']}
-            Hacker News Users: {stats['hn_users']}
+            X (Twitter) Posts: {stats['x_posts']}
+            X (Twitter) Users: {stats['x_users']}
 
             Execution Time: {execution_time:.2f}s
             Errors: {len(errors)}
