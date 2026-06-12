@@ -41,7 +41,8 @@ resource "aws_s3_bucket_policy" "restrict_to_vpc_and_users" {
             "aws:PrincipalArn" = [
               "arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/iamadmin",
               "arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/*",
-              "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+              "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root",
+              "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/visor-inc-lambda-role"
             ]
           }
         }

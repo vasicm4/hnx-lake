@@ -20,3 +20,13 @@ variable "discord_webhook_url" {
   description = "Discord webhook URL for notifications"
   sensitive   = true
 }
+
+variable "silver_bucket_name" {
+  type        = string
+  description = "Name of the silver S3 bucket"
+}
+
+variable "silver_bucket_arn" {
+  type        = string
+  description = "S3 bucket for Lambda deployment artifacts"
+}
