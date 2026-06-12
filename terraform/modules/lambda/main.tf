@@ -54,16 +54,22 @@ resource "aws_security_group" "lambda_sg" {
   }
 }
 
-data "archive_file" "lambda_zip" {
+data "archive_file" "bronze_lambda_zip" {
   type        = "zip"
   source_file = "${path.module}/bronze_lambda.py"
   output_path = "${path.module}/bronze_lambda.zip"
 }
 
+data "archive_file" "silver_lambda_zip" {
+  type        = "zip"
+  source_file = "${path.module}/silver_lambda.py"
+  output_path = "${path.module}/silver_lambda.zip"
+}
+
 resource "aws_lambda_function" "hackernews_fetch" {
-  filename         = data.archive_file.lambda_zip.output_path
-  source_code_hash = data.archive_file.lambda_zip.output_base64sha256
-  
+  filename         = data.archive_file.bronze_lambda_zip.output_path
+  source_code_hash = data.archive_file.bronze_lambda_zip.output_base64sha256
+
   function_name = "visor-inc-test-fetch"
   role          = aws_iam_role.lambda_exec.arn
   handler       = "bronze_lambda.lambda_handler"
@@ -84,16 +90,53 @@ resource "aws_lambda_function" "hackernews_fetch" {
   }
 }
 
+resource "aws_lambda_function" "silver_lambda" {
+  filename         = data.archive_file.silver_lambda_zip.output_path
+  source_code_hash = data.archive_file.silver_lambda_zip.output_base64sha256
+
+  function_name = "visor-inc-silver-lambda"
+  role          = aws_iam_role.lambda_exec.arn
+  handler       = "silver_lambda.lambda_handler"
+  runtime       = "python3.11"
+  timeout       = 900
+  memory_size   = 512
+
+  vpc_config {
+    subnet_ids         = [var.private_subnet_id]
+    security_group_ids = [aws_security_group.lambda_sg.id]
+  }
+
+  environment {
+    variables = {
+      BRONZE_BUCKET_NAME   = var.bronze_bucket_name
+      SILVER_BUCKET_NAME   = var.silver_bucket_name
+      DISCORD_WEBHOOK_URL  = var.discord_webhook_url
+    }
+  }
+}
+
 resource "aws_cloudwatch_event_rule" "daily_trigger" {
   name                = "visor-inc-daily-data-collection"
   description         = "Trigger data collection daily"
   schedule_expression = "cron(0 1 * * ? *)"
 }
 
+resource "aws_cloudwatch_event_rule" "silver_daily_trigger" {
+  name                = "visor-inc-daily-silver-processing"
+  description         = "Trigger silver lambda daily"
+  schedule_expression = "cron(0 2 * * ? *)"
+}
+
 resource "aws_cloudwatch_event_target" "lambda_target" {
   rule      = aws_cloudwatch_event_rule.daily_trigger.name
   target_id = "hackernews-fetch-lambda"
   arn       = aws_lambda_function.hackernews_fetch.arn
+}
+
+resource "aws_cloudwatch_event_target" "silver_lambda_target" {
+  rule      = aws_cloudwatch_event_rule.silver_daily_trigger.name
+  target_id = "silver-lambda"
+  arn       = aws_lambda_function.silver_lambda.arn
 }
 
 resource "aws_lambda_permission" "allow_eventbridge" {
@@ -104,10 +147,18 @@ resource "aws_lambda_permission" "allow_eventbridge" {
   source_arn    = aws_cloudwatch_event_rule.daily_trigger.arn
 }
 
+resource "aws_lambda_permission" "silver_allow_eventbridge" {
+  statement_id  = "AllowExecutionFromEventBridgeSilver"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.silver_lambda.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.silver_daily_trigger.arn
+}
+
 # resource "aws_cloudwatch_log_group" "lambda_logs" {
 #   name              = "/aws/lambda/${aws_lambda_function.hackernews_fetch.function_name}"
 #   retention_in_days = 14
-# 
+#
 #   tags = {
 #     Name = "visor-inc-lambda-logs"
 #   }
