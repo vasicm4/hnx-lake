@@ -18,17 +18,37 @@ resource "aws_iam_role_policy_attachment" "lambda_vpc_access" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }
 
-resource "aws_iam_role_policy" "lambda_s3_write" {
-  name = "lambda-s3-write-policy"
+resource "aws_iam_role_policy" "lambda_s3_access" {
+  name = "lambda-s3-access-policy"
   role = aws_iam_role.lambda_exec.id
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["s3:PutObject"]
-      Resource = ["${var.bronze_bucket_arn}/*"]
-    }]
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = [
+          "s3:ListBucket",
+          "s3:GetObject"
+        ]
+        Resource = [
+          "${var.bronze_bucket_arn}",
+          "${var.bronze_bucket_arn}/*"
+        ]
+      },
+      {
+        Effect   = "Allow"
+        Action   = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          "${var.silver_bucket_arn}",
+          "${var.silver_bucket_arn}/*"
+        ]
+      }
+    ]
   })
 }
 
@@ -60,33 +80,6 @@ data "archive_file" "bronze_lambda_zip" {
   output_path = "${path.module}/bronze_lambda.zip"
 }
 
-resource "null_resource" "build_silver_lambda" {
-  provisioner "local-exec" {
-    command = <<-EOT
-      rm -rf ${path.module}/build/silver
-      mkdir -p ${path.module}/build/silver
-
-      docker run --rm \
-        -v ${abspath(path.module)}/silver:/workspace/silver \
-        -v ${abspath(path.module)}/build:/workspace/build \
-        python:3.12-slim \
-        /bin/bash -c "
-          pip install -r /workspace/silver/requirements.txt \
-            -t /workspace/build/silver &&
-          cp /workspace/silver/silver_lambda.py \
-            /workspace/build/silver/
-        "
-    EOT
-  }
-}
-
-data "archive_file" "silver_lambda_zip" {
-  depends_on = [null_resource.build_silver_lambda]
-  type        = "zip"
-  source_dir = "${path.module}/build/silver"
-  output_path = "${path.module}/silver_lambda.zip"
-}
-
 resource "aws_lambda_function" "hackernews_fetch" {
   filename         = data.archive_file.bronze_lambda_zip.output_path
   source_code_hash = data.archive_file.bronze_lambda_zip.output_base64sha256
@@ -112,8 +105,9 @@ resource "aws_lambda_function" "hackernews_fetch" {
 }
 
 resource "aws_lambda_function" "silver_lambda" {
-  filename         = data.archive_file.silver_lambda_zip.output_path
-  source_code_hash = data.archive_file.silver_lambda_zip.output_base64sha256
+  filename         = "${path.module}/silver_lambda.zip"
+  source_code_hash = filebase64sha256("${path.module}/silver_lambda.zip")
+  layers = ["arn:aws:lambda:us-east-1:336392948345:layer:AWSSDKPandas-Python312:3"]
 
   function_name = "visor-inc-silver-lambda"
   role          = aws_iam_role.lambda_exec.arn

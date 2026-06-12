@@ -35,4 +35,5 @@ module "lambda" {
   bronze_bucket_name  = "visor-inc-amazing-datalake-bronze"
   silver_bucket_name  = "visor-inc-amazing-datalake-silver"
   discord_webhook_url = var.discord_webhook_url
+  silver_bucket_arn   = module.silver_bucket.bucket_arn
 }

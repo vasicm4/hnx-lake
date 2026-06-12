@@ -25,3 +25,8 @@ variable "silver_bucket_name" {
   type        = string
   description = "Name of the silver S3 bucket"
 }
+
+variable "silver_bucket_arn" {
+  type        = string
+  description = "S3 bucket for Lambda deployment artifacts"
+}
