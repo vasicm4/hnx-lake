@@ -5,6 +5,6 @@ terraform {
     region         = "us-east-1"
     dynamodb_table = "terraform-state-lock"
     encrypt        = true
-    profile        = "cloud-projekat-dev" 
+    profile        = "cloud-projekat-dev"
   }
 }

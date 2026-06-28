@@ -47,6 +47,18 @@ resource "aws_iam_role_policy" "lambda_s3_access" {
           "${var.silver_bucket_arn}",
           "${var.silver_bucket_arn}/*"
         ]
+      },
+      {
+        Effect   = "Allow"
+        Action   = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          "${var.gold_bucket_arn}",
+          "${var.gold_bucket_arn}/*"
+        ]
       }
     ]
   })
