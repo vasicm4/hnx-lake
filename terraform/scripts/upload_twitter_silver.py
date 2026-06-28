@@ -92,10 +92,10 @@ def extract_x_items(objects_list, date_str):
             for tweet in data:
                 if not isinstance(tweet, dict):
                     continue
-                item_id = str(tweet.get('id') or tweet.get('tweet_id') or tweet.get('ID') or '')
+                item_id = str(tweet.get('Tweet_ID') or tweet.get('id') or tweet.get('tweet_id') or tweet.get('ID') or '')
                 if not item_id:
                     continue
-                author = tweet.get('user') or tweet.get('username') or tweet.get('author') or ''
+                author = tweet.get('Username') or tweet.get('user') or tweet.get('username') or tweet.get('author') or ''
                 if isinstance(author, dict):
                     author = author.get('screen_name') or author.get('name') or str(author.get('id', ''))
                 if not author:
@@ -106,18 +106,24 @@ def extract_x_items(objects_list, date_str):
                 content_clean = clean_html_text(content_raw)
                 is_retweet = (
                     content_clean.startswith('RT @') or
-                    tweet.get('is_retweet') == True or
-                    tweet.get('retweet_count', 0) > 0
+                    tweet.get('is_retweet') == True
                 )
                 post_type = 'retweet' if is_retweet else 'tweet'
+                # Engagement proxy for X (dataset has no follower count):
+                # score = Likes + Retweets, used by gold for "top X users by engagement"
+                likes = tweet.get('Likes', tweet.get('favorite_count', 0)) or 0
+                retweets = tweet.get('Retweets', tweet.get('retweet_count', 0)) or 0
+                try:
+                    score = int(likes) + int(retweets)
+                except (TypeError, ValueError):
+                    score = 0
                 posts.append({
                     'post_id': item_id,
                     'author_username': author,
                     'content_text': content_clean,
                     'created_at': created_at_norm,
                     'post_type': post_type,
-                    'retweet_count': tweet.get('retweet_count', 0),
-                    'favorite_count': tweet.get('favorite_count', 0)
+                    'score': score
                 })
                 if author not in users:
                     verified = False
@@ -247,7 +253,7 @@ def lambda_handler(event, context):
 
         if deduped_posts:
             posts_df = pd.DataFrame(deduped_posts)
-            posts_columns = ['post_id', 'author_username', 'content_text', 'created_at', 'post_type']
+            posts_columns = ['post_id', 'author_username', 'content_text', 'created_at', 'post_type', 'score']
             posts_columns = [col for col in posts_columns if col in posts_df.columns]
             posts_df = posts_df[posts_columns]
             posts_df['created_at_dt'] = pd.to_datetime(posts_df['created_at'])
