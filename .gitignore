@@ -5,3 +5,5 @@ terraform.tfstate.backup
 *.tfvars
 *.tfvars.json
 *.zip
+__pycache__/
+*.pyc
