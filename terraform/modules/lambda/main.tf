@@ -142,6 +142,38 @@ resource "aws_lambda_function" "silver_lambda" {
   }
 }
 
+data "archive_file" "gold_lambda_zip" {
+  type        = "zip"
+  source_file = "${path.module}/gold/gold_lambda.py"
+  output_path = "${path.module}/gold_lambda.zip"
+}
+
+resource "aws_lambda_function" "gold_lambda" {
+  filename         = data.archive_file.gold_lambda_zip.output_path
+  source_code_hash = data.archive_file.gold_lambda_zip.output_base64sha256
+  layers           = ["arn:aws:lambda:us-east-1:336392948345:layer:AWSSDKPandas-Python312:3"]
+
+  function_name = "visor-inc-gold-lambda"
+  role          = aws_iam_role.lambda_exec.arn
+  handler       = "gold_lambda.lambda_handler"
+  runtime       = "python3.12"
+  timeout       = 900
+  memory_size   = 1024
+
+  vpc_config {
+    subnet_ids         = [var.private_subnet_id]
+    security_group_ids = [aws_security_group.lambda_sg.id]
+  }
+
+  environment {
+    variables = {
+      SILVER_BUCKET_NAME  = var.silver_bucket_name
+      GOLD_BUCKET_NAME    = var.gold_bucket_name
+      DISCORD_WEBHOOK_URL = var.discord_webhook_url
+    }
+  }
+}
+
 resource "aws_cloudwatch_event_rule" "daily_trigger" {
   name                = "visor-inc-daily-data-collection"
   description         = "Trigger data collection daily"
