@@ -214,6 +214,35 @@ resource "aws_lambda_permission" "silver_allow_eventbridge" {
   source_arn    = aws_cloudwatch_event_rule.silver_daily_trigger.arn
 }
 
+resource "aws_cloudwatch_event_rule" "gold_daily_trigger" {
+  name                = "visor-inc-daily-gold-processing"
+  description         = "Trigger gold lambda daily, after silver"
+  schedule_expression = "cron(0 3 * * ? *)"
+}
+
+resource "aws_cloudwatch_event_target" "gold_lambda_target" {
+  rule      = aws_cloudwatch_event_rule.gold_daily_trigger.name
+  target_id = "gold-lambda"
+  arn       = aws_lambda_function.gold_lambda.arn
+}
+
+resource "aws_lambda_permission" "gold_allow_eventbridge" {
+  statement_id  = "AllowExecutionFromEventBridgeGold"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.gold_lambda.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.gold_daily_trigger.arn
+}
+
+resource "aws_cloudwatch_log_group" "gold_lambda_logs" {
+  name              = "/aws/lambda/${aws_lambda_function.gold_lambda.function_name}"
+  retention_in_days = 14
+
+  tags = {
+    Name = "visor-inc-gold-lambda-logs"
+  }
+}
+
 # resource "aws_cloudwatch_log_group" "lambda_logs" {
 #   name              = "/aws/lambda/${aws_lambda_function.hackernews_fetch.function_name}"
 #   retention_in_days = 14
