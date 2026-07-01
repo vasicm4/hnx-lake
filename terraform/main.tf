@@ -39,3 +39,18 @@ module "lambda" {
   gold_bucket_name    = "visor-inc-amazing-datalake-gold"
   gold_bucket_arn     = module.gold_bucket.bucket_arn
 }
+
+module "visualization" {
+  source            = "./modules/visualization"
+  vpc_id            = module.network.vpc_id
+  public_subnet_id  = module.network.public_subnet_id
+  private_subnet_id = module.network.private_subnet_id
+  lambda_role_arn   = module.lambda.lambda_role_arn
+  gold_bucket_name  = "visor-inc-amazing-datalake-gold"
+  gold_bucket_arn   = module.gold_bucket.bucket_arn
+  discord_webhook_url = var.discord_webhook_url
+  db_password             = var.db_password
+  superset_admin_password = var.superset_admin_password
+  superset_secret_key     = var.superset_secret_key
+  superset_ingress_cidr   = var.superset_ingress_cidr
+}
