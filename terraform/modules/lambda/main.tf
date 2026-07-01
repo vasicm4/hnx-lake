@@ -47,6 +47,18 @@ resource "aws_iam_role_policy" "lambda_s3_access" {
           "${var.silver_bucket_arn}",
           "${var.silver_bucket_arn}/*"
         ]
+      },
+      {
+        Effect   = "Allow"
+        Action   = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          "${var.gold_bucket_arn}",
+          "${var.gold_bucket_arn}/*"
+        ]
       }
     ]
   })
@@ -130,6 +142,38 @@ resource "aws_lambda_function" "silver_lambda" {
   }
 }
 
+data "archive_file" "gold_lambda_zip" {
+  type        = "zip"
+  source_file = "${path.module}/gold/gold_lambda.py"
+  output_path = "${path.module}/gold_lambda.zip"
+}
+
+resource "aws_lambda_function" "gold_lambda" {
+  filename         = data.archive_file.gold_lambda_zip.output_path
+  source_code_hash = data.archive_file.gold_lambda_zip.output_base64sha256
+  layers           = ["arn:aws:lambda:us-east-1:336392948345:layer:AWSSDKPandas-Python312:3"]
+
+  function_name = "visor-inc-gold-lambda"
+  role          = aws_iam_role.lambda_exec.arn
+  handler       = "gold_lambda.lambda_handler"
+  runtime       = "python3.12"
+  timeout       = 900
+  memory_size   = 1024
+
+  vpc_config {
+    subnet_ids         = [var.private_subnet_id]
+    security_group_ids = [aws_security_group.lambda_sg.id]
+  }
+
+  environment {
+    variables = {
+      SILVER_BUCKET_NAME  = var.silver_bucket_name
+      GOLD_BUCKET_NAME    = var.gold_bucket_name
+      DISCORD_WEBHOOK_URL = var.discord_webhook_url
+    }
+  }
+}
+
 resource "aws_cloudwatch_event_rule" "daily_trigger" {
   name                = "visor-inc-daily-data-collection"
   description         = "Trigger data collection daily"
@@ -168,6 +212,35 @@ resource "aws_lambda_permission" "silver_allow_eventbridge" {
   function_name = aws_lambda_function.silver_lambda.function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.silver_daily_trigger.arn
+}
+
+resource "aws_cloudwatch_event_rule" "gold_daily_trigger" {
+  name                = "visor-inc-daily-gold-processing"
+  description         = "Trigger gold lambda daily, after silver"
+  schedule_expression = "cron(0 3 * * ? *)"
+}
+
+resource "aws_cloudwatch_event_target" "gold_lambda_target" {
+  rule      = aws_cloudwatch_event_rule.gold_daily_trigger.name
+  target_id = "gold-lambda"
+  arn       = aws_lambda_function.gold_lambda.arn
+}
+
+resource "aws_lambda_permission" "gold_allow_eventbridge" {
+  statement_id  = "AllowExecutionFromEventBridgeGold"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.gold_lambda.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.gold_daily_trigger.arn
+}
+
+resource "aws_cloudwatch_log_group" "gold_lambda_logs" {
+  name              = "/aws/lambda/${aws_lambda_function.gold_lambda.function_name}"
+  retention_in_days = 14
+
+  tags = {
+    Name = "visor-inc-gold-lambda-logs"
+  }
 }
 
 # resource "aws_cloudwatch_log_group" "lambda_logs" {

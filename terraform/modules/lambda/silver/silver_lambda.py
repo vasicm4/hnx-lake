@@ -277,7 +277,7 @@ def lambda_handler(event, context):
 
         if deduped_posts:
             posts_df = pd.DataFrame(deduped_posts)
-            posts_columns = ['post_id', 'author_username', 'content_text', 'created_at', 'post_type']
+            posts_columns = ['post_id', 'author_username', 'content_text', 'created_at', 'post_type', 'score']
             posts_columns = [col for col in posts_columns if col in posts_df.columns]
             posts_df = posts_df[posts_columns]
             posts_df['created_at_dt'] = pd.to_datetime(posts_df['created_at'])
